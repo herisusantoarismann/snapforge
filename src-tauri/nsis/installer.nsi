@@ -447,7 +447,7 @@ Function FinishPageLeave
   ${If} $StartupCheckbox != 0
     SendMessage $StartupCheckbox ${BM_GETCHECK} 0 0 $StartupCheckboxState
     ${If} $StartupCheckboxState == 1
-      WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" '"$INSTDIR\${MAINBINARYNAME}.exe"'
+      WriteRegStr HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}" '"$INSTDIR\${MAINBINARYNAME}.exe" --minimized'
     ${EndIf}
   ${EndIf}
 FunctionEnd
@@ -899,6 +899,7 @@ Section Uninstall
   ; We do this when not updating (to preserve the registry value on updates)
   ${If} $UpdateMode <> 1
     DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "${PRODUCTNAME}"
+    DeleteRegValue HKCU "Software\Microsoft\Windows\CurrentVersion\Run" "snapforge"
   ${EndIf}
 
   ; Delete app data if the checkbox is selected

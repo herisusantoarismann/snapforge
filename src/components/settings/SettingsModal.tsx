@@ -17,7 +17,6 @@ import {
 } from "lucide-react";
 import { useSettingsStore, DEFAULT_SETTINGS } from "../../stores/settingsStore";
 import { invoke } from "@tauri-apps/api/core";
-import { enable, disable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useAutoUpdater } from "../../hooks/useAutoUpdater";
 
 export interface SettingsModalProps {
@@ -156,7 +155,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     useEffect(() => {
         if (!isSettingsOpen) return;
         let isMounted = true;
-        isEnabled()
+        invoke<boolean>("get_autostart_status")
             .then((enabled) => {
                 if (isMounted) {
                     setLaunchOnStartup(enabled);
@@ -176,18 +175,13 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
     const handleToggleLaunchOnStartup = useCallback(
         async (checked: boolean) => {
             try {
-                if (checked) {
-                    await enable();
-                } else {
-                    await disable();
-                }
+                await invoke("set_autostart", { enabled: checked });
                 setLaunchOnStartup(checked);
             } catch (err) {
                 console.error(
                     "[SettingsModal] Failed to toggle autostart:",
                     err,
                 );
-                setLaunchOnStartup(checked);
             }
         },
         [setLaunchOnStartup],
@@ -1190,7 +1184,7 @@ export const SettingsModal: React.FC<SettingsModalProps> = ({
                                     onClick={() => {
                                         resetToDefaults();
                                         setShowResetConfirm(false);
-                                        disable().catch(() => {});
+                                        invoke("set_autostart", { enabled: false }).catch(() => {});
                                         syncHotkeysToBackend(
                                             DEFAULT_SETTINGS.screenshotHotkey,
                                             DEFAULT_SETTINGS.recordHotkey,

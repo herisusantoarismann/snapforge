@@ -838,6 +838,92 @@ fn handle_take_screenshot(app: &tauri::AppHandle) {
     }
 }
 
+#[tauri::command]
+fn get_autostart_status(_app: tauri::AppHandle) -> Result<bool, String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_READ};
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        if let Ok(key) = hkcu.open_subkey_with_flags(
+            "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+            KEY_READ,
+        ) {
+            if key.get_value::<String, _>("SnapForge").is_ok()
+                || key.get_value::<String, _>("snapforge").is_ok()
+            {
+                return Ok(true);
+            }
+        }
+        return Ok(false);
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        _app.autolaunch().is_enabled().map_err(|e| e.to_string())
+    }
+}
+
+#[tauri::command]
+fn set_autostart(_app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
+    #[cfg(target_os = "windows")]
+    {
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_SET_VALUE};
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let key = hkcu
+            .open_subkey_with_flags(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                KEY_SET_VALUE,
+            )
+            .map_err(|e| format!("Failed to access Windows Run registry: {e}"))?;
+
+        if enabled {
+            let current_exe = std::env::current_exe()
+                .map_err(|e| format!("Failed to resolve executable path: {e}"))?;
+            let exe_str = current_exe.to_string_lossy();
+
+            // Crucial: Path enclosed in double quotes so paths with spaces (e.g. C:\Program Files\SnapForge) work on Windows boot!
+            let val = format!("\"{exe_str}\" --minimized");
+            key.set_value("SnapForge", &val)
+                .map_err(|e| format!("Failed to write SnapForge Run entry: {e}"))?;
+
+            // Clean up legacy lowercase key if present
+            let _ = key.delete_value("snapforge");
+
+            // Also update Windows Task Manager StartupApproved to enabled state (0x02)
+            if let Ok(sa_key) = hkcu.open_subkey_with_flags(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Explorer\\StartupApproved\\Run",
+                KEY_SET_VALUE,
+            ) {
+                let enabled_bytes: [u8; 12] = [0x02, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+                let _ = sa_key.set_raw_value(
+                    "SnapForge",
+                    &winreg::RegValue {
+                        vtype: winreg::enums::RegType::REG_BINARY,
+                        bytes: enabled_bytes.to_vec(),
+                    },
+                );
+            }
+        } else {
+            let _ = key.delete_value("SnapForge");
+            let _ = key.delete_value("snapforge");
+        }
+        return Ok(());
+    }
+    #[cfg(not(target_os = "windows"))]
+    {
+        use tauri_plugin_autostart::ManagerExt;
+        if enabled {
+            app.autolaunch().enable().map_err(|e| e.to_string())
+        } else {
+            app.autolaunch().disable().map_err(|e| e.to_string())
+        }
+    }
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     #[cfg(target_os = "windows")]
@@ -912,6 +998,20 @@ pub fn run() {
                 let _ = window.set_skip_taskbar(true);
                 #[cfg(target_os = "windows")]
                 exclude_from_capture(&window);
+
+                // Auto-show Floating Bar if launched manually by the user (not via autostart)
+                let args: Vec<String> = std::env::args().collect();
+                let is_autostart = args
+                    .iter()
+                    .any(|arg| arg == "--minimized" || arg == "--autostart");
+                if !is_autostart {
+                    let win = window.clone();
+                    std::thread::spawn(move || {
+                        std::thread::sleep(std::time::Duration::from_millis(400));
+                        let _ = enter_floating_bar_mode(win.clone());
+                        let _ = win.emit("open-floating-bar", ());
+                    });
+                }
             }
 
             if let Some(state) = app.try_state::<HotkeyState>() {
@@ -1057,8 +1157,46 @@ pub fn run() {
             get_system_diagnostics,
             disable_global_shortcuts,
             register_global_shortcut,
-            apply_hotkeys
+            apply_hotkeys,
+            get_autostart_status,
+            set_autostart
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod tests {
+    #[test]
+    #[cfg(target_os = "windows")]
+    fn test_windows_autostart_registry_quoted_path() {
+        use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_SET_VALUE};
+        use winreg::RegKey;
+
+        let hkcu = RegKey::predef(HKEY_CURRENT_USER);
+        let key = hkcu
+            .open_subkey_with_flags(
+                "Software\\Microsoft\\Windows\\CurrentVersion\\Run",
+                KEY_SET_VALUE | KEY_READ,
+            )
+            .expect("should open Run key");
+
+        let test_exe = r"C:\Program Files\SnapForge\snapforge.exe";
+        let test_val = format!("\"{test_exe}\" --minimized");
+
+        // 1. Write
+        key.set_value("SnapForgeTest", &test_val).expect("should write");
+
+        // 2. Read & verify
+        let read_val: String = key.get_value("SnapForgeTest").expect("should read");
+        assert_eq!(read_val, test_val);
+        assert!(read_val.starts_with('"'), "Path must start with double quote");
+        assert!(
+            read_val.contains("\" --minimized"),
+            "Path must contain closing quote before --minimized"
+        );
+
+        // 3. Cleanup
+        let _ = key.delete_value("SnapForgeTest");
+    }
 }

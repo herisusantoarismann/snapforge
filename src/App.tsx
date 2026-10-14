@@ -6,7 +6,6 @@ import { useSettingsStore } from "./stores/settingsStore";
 import { useUpdaterStore } from "./hooks/useAutoUpdater";
 import { listen } from "@tauri-apps/api/event";
 import { invoke } from "@tauri-apps/api/core";
-import { isEnabled, enable, disable } from "@tauri-apps/plugin-autostart";
 import "./App.css";
 
 const App: React.FC = () => {
@@ -26,12 +25,12 @@ const App: React.FC = () => {
     });
 
     // Ensure OS autostart matches persisted user setting
-    isEnabled()
+    invoke<boolean>("get_autostart_status")
       .then(async (currentlyEnabled) => {
         if (launchOnStartup && !currentlyEnabled) {
-          await enable();
+          await invoke("set_autostart", { enabled: true });
         } else if (!launchOnStartup && currentlyEnabled) {
-          await disable();
+          await invoke("set_autostart", { enabled: false });
         }
       })
       .catch((err) => {
