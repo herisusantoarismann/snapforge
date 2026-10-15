@@ -1,6 +1,62 @@
-import { createWorker, type Worker } from "tesseract.js";
+import { createWorker, type Worker, OEM } from "tesseract.js";
 
 let workerPromise: Promise<Worker> | null = null;
+
+let cachedWorkerBlobUrl: string | null = null;
+
+/**
+ * Returns local base paths for offline Tesseract assets (core wasm and traineddata).
+ * Compatible with both Vite development and Tauri production WebViews.
+ */
+function getTesseractLocalPaths() {
+  const origin =
+    typeof window !== "undefined" && window.location.origin
+      ? window.location.origin
+      : "";
+
+  return {
+    corePath: `${origin}/tesseract`,
+    langPath: `${origin}/tesseract/tessdata`,
+  };
+}
+
+/**
+ * Fetches the local worker script and creates a same-origin Blob URL.
+ * This guarantees the WebWorker is spawned without remote network requests or importScripts blocking.
+ */
+async function getWorkerBlobUrl(): Promise<string> {
+  if (cachedWorkerBlobUrl) {
+    return cachedWorkerBlobUrl;
+  }
+  const res = await fetch("/tesseract/worker.min.js");
+  if (!res.ok) {
+    throw new Error(`Failed to load local OCR worker script: HTTP ${res.status}`);
+  }
+  const blob = await res.blob();
+  cachedWorkerBlobUrl = URL.createObjectURL(
+    new Blob([blob], { type: "application/javascript" })
+  );
+  return cachedWorkerBlobUrl;
+}
+
+/**
+ * Creates and initializes a Tesseract worker using 100% offline local bundled assets.
+ */
+async function createConfiguredWorker(languages: string = "eng+ind"): Promise<Worker> {
+  const { corePath, langPath } = getTesseractLocalPaths();
+  const workerBlobUrl = await getWorkerBlobUrl();
+
+  console.log(`[ocrService] Initializing offline local Tesseract worker (${languages})...`);
+  const worker = await createWorker(languages, OEM.LSTM_ONLY, {
+    workerPath: workerBlobUrl,
+    corePath,
+    langPath,
+    gzip: true,
+    workerBlobURL: false, // Spawns directly from preloaded blob without importScripts CDN call
+  });
+  console.log(`[ocrService] Local offline worker (${languages}) initialized successfully.`);
+  return worker;
+}
 
 /**
  * Get or initialize the singleton Tesseract Worker.
@@ -10,15 +66,13 @@ async function getOcrWorker(): Promise<Worker> {
   if (!workerPromise) {
     workerPromise = (async () => {
       try {
-        const worker = await createWorker("eng+ind");
-        return worker;
+        return await createConfiguredWorker("eng+ind");
       } catch (err) {
         console.warn(
           "[ocrService] 'eng+ind' initialization failed, falling back to 'eng':",
           err
         );
-        const fallbackWorker = await createWorker("eng");
-        return fallbackWorker;
+        return await createConfiguredWorker("eng");
       }
     })();
   }
@@ -45,7 +99,7 @@ export async function extractTextFromArea(
     console.error("[ocrService] OCR execution failed, refreshing worker:", err);
     // If old worker failed, reset promise and create a fresh worker
     workerPromise = null;
-    const freshWorker = await createWorker("eng");
+    const freshWorker = await createConfiguredWorker("eng");
     const result = await freshWorker.recognize(imageDataUrl);
     return result.data.text.trim();
   }
