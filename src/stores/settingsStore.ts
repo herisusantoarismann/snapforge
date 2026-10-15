@@ -76,7 +76,7 @@ export const DEFAULT_SETTINGS = {
   recordHotkey: "CommandOrControl+Shift+R",
   floatingBarHotkey: "CommandOrControl+Shift+F",
 
-  launchOnStartup: false,
+  launchOnStartup: true,
   closeToTray: true,
   enableFlashEffect: true,
   enableShutterFlash: true,
