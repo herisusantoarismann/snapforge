@@ -27,6 +27,7 @@ arboard = "3.4"
 reqwest = { version = "0.12", default-features = false, features = ["json", "multipart", "rustls-tls"] }
 sysinfo = "0.39.6"
 rfd = "0.15"
+tauri-plugin-single-instance = "2"
 
 [profile.release]
 codegen-units = 1
