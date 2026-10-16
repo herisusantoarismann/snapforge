@@ -256,9 +256,9 @@ fn exit_ticket_floater_mode(window: WebviewWindow) -> Result<(), String> {
 }
 
 #[tauri::command]
-fn trigger_screenshot(window: WebviewWindow) -> Result<String, String> {
+fn trigger_screenshot(_window: WebviewWindow) -> Result<String, String> {
     #[cfg(target_os = "windows")]
-    exclude_from_capture(&window);
+    exclude_from_capture(&_window);
 
     do_capture_screen()
 }
@@ -819,9 +819,9 @@ async fn send_discord_feedback(
 }
 
 fn handle_take_screenshot(app: &tauri::AppHandle) {
-    if let Some(window) = app.get_webview_window("main") {
+    if let Some(_window) = app.get_webview_window("main") {
         #[cfg(target_os = "windows")]
-        exclude_from_capture(&window);
+        exclude_from_capture(&_window);
 
         let app_handle = app.clone();
         tauri::async_runtime::spawn(async move {
@@ -917,9 +917,9 @@ fn set_autostart(_app: tauri::AppHandle, enabled: bool) -> Result<(), String> {
     {
         use tauri_plugin_autostart::ManagerExt;
         if enabled {
-            app.autolaunch().enable().map_err(|e| e.to_string())
+            _app.autolaunch().enable().map_err(|e| e.to_string())
         } else {
-            app.autolaunch().disable().map_err(|e| e.to_string())
+            _app.autolaunch().disable().map_err(|e| e.to_string())
         }
     }
 }
